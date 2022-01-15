@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block head %} 
+ 
+{% endblock %}
+
+{% block body %} 
+<h1>Overlap and Connectivity Visualization Tool</h1>
+
+<form method="POST">
+    <div>
+      <div>
+          <span>Please select the city</span>
+              <select name="comp_select">
+                {% for o in data %}
+                <option value="{{ o.name }}">{{ o.name }}</option>
+                {% endfor %}
+              </select>
+      </div>
+      <button type="submit">Go</button>
+    </div>
+</form>
+
+{% endblock %}

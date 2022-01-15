@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
+  <script src="https://d3js.org/d3.v4.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-geo-projection@4"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chroma-js/2.1.0/chroma.min.js" integrity="sha256-gX8uuyxN8stSMHWO9arnnKyenTOALaVAcVB3b6P87e4=" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-legend/2.25.6/d3-legend.js"></script>
+  <style>
+
+    path {
+      stroke: #333;
+      stroke-width: .5px;
+    }
+      
+    circle {
+      fill: #fff;
+      fill-opacity: 0.4;
+      stroke: #111;
+    }
+    #wardnull{
+      fill: blue;
+
+    }
+
+    path.active {
+      fill: pink;
+    }
+    path.selected{
+      fill: #3FADA8;
+      stroke-width: 3px;
+    }
+    circle.active {
+      fill: blue;
+    }
+    </style>
+</head>
+<body style="text-align:center; background-color:#eee">
+    <h1 style="margin: 0%;">Bangalore</h1>
+    <div>Parent Ward: <span id="pward"></span></div>
+    <div>Currently hovering over: <span id="hover_text"></span></div>
+    <div>Connectivity Score: <span id="cs"></span></div>
+    <br>
+    <svg id="wellowise-legend" style="width: 40%; text-align: center" viewBox="0 0 600 40">
+        <g class="legendLinear"> </g>
+    
+      </svg>
+
+
+    <script>
+        var width = 960;
+        var height = 500;
+
+        var f;
+
+        var svg=d3.select("body").append("svg");
+        svg.attr("width",width)
+        svg.attr("height",height)
+
+        var conn_score;
+
+        function getWardData(Ward_Name,Ward_No){
+            console.log("Ward Name = "+ Ward_Name)
+            console.log("Ward No = "+ Ward_No)
+
+            let flask_xhttp = new XMLHttpRequest()
+            flask_xhttp.onreadystatechange = function(){
+                if( this.readyState==4 && this.status==200){
+                    conn_score=JSON.parse(flask_xhttp.responseText)
+                    // console.log(conn_score)
+                    let conn_keys=Object.keys(conn_score)
+                    // console.log(conn_keys)
+                    let max=1
+                    for( let i=0;i<conn_keys.length;i++){
+                        max=Math.max(max,conn_score[conn_keys[i]])
+                        // console.log(typeof(conn_score[conn_keys[i]]))
+                    }
+                    f = chroma.scale(chroma.brewer.OrRd).domain([0, max]);
+                    setLegend(max)
+
+                    for(let i=0;i<conn_keys.length;i++){
+                        d3.select(`path#ward${conn_keys[i]}`).attr('fill',f(conn_score[conn_keys[i]]))
+                    }
+
+                }
+            }
+            flask_xhttp.open("GET",`http://127.0.0.1:5000/getScoreBangalore?Ward_No=${Ward_No}`,true)
+            flask_xhttp.send();
+
+        }
+
+
+        function fetchMap(){
+            let xhttp = new XMLHttpRequest();
+            xhttp.onreadystatechange=function(){
+                if(this.readyState==4 && this.status==200){
+                    mapData=JSON.parse(xhttp.responseText)
+                    var projection=d3.geoMercator()
+                    projection.fitSize([960,500],mapData)
+                    var path=d3.geoPath(projection)
+                    data=mapData
+                    svg.selectAll("path")
+                        .data(mapData.features)
+                        .enter().append("path")
+                        .attr("d",path)
+                        .attr('id',function(d){
+                            // console.log(d.properties['WARD_NO']==1)
+                            return ("ward"+d.properties['WARD_NO'])
+                        })
+                        .attr("fill",function(d){
+                            return '#fff'
+                        })
+                        .text(function(d){
+                            const value = d.properties['WARD_NAME']
+                            return value
+
+                        })
+                        .on("mouseover",function(d){
+                            d3.select(this).classed("active",true)
+                            d3.select("#hover_text").text(this.innerHTML)
+                            let wno=d.properties.WARD_NO
+
+                            if(typeof(conn_score) != 'undefined'){
+                                d3.select('#cs').text(conn_score[wno])
+                            }
+
+                        })
+                        .on("mouseout",function(d){
+                            d3.select(this).classed("active",false)
+                            d3.select("#hover_text").text("")
+                        })
+                        .on("click",function(d){
+                            // console.log(d)
+                            getWardData(d.properties.WARD_NAME,d.properties.WARD_NO)
+                            elms=document.getElementsByClassName("selected")
+                            for(let i=0;i<elms.length;i++){
+                                elms[i].classList.remove("selected")
+                            }
+                            d3.select(this).classed("selected",true)
+                            d3.select('#pward').text(d.properties.WARD_NAME)
+                            d3.select('#cs').text(0)
+
+
+                        })
+
+
+
+                }
+            }
+            xhttp.open("GET","https://raw.githubusercontent.com/Siraj19176/BTP1/main/ward_data_bbmp.geojson",true);
+            xhttp.send();
+        }
+    function setLegend(max){
+        let quantize = d3.scaleSequential(d3.interpolateRgbBasis(chroma.brewer.OrRd)).domain([0, max])
+        let svgLegend = d3.select("svg#wellowise-legend");
+        let legendLinear = d3.legendColor()
+          .shapeWidth(52.5)
+          .cells(11)
+          .orient('horizontal')
+          //.title("Number of confirmed cases of corona virus in India")
+          .scale(quantize);
+
+
+        svgLegend.select(".legendLinear")
+          .call(legendLinear)
+
+    }
+    fetchMap()
+
+    </script>
+</body>
+</html>
