@@ -1,5 +1,9 @@
 from flask import Blueprint, render_template, request
-import pandas as pd, folium, numpy as np, random
+import pandas as pd, folium, numpy as np, random, copy
+
+start_coor = {}
+start_coor["Delhi"] = [28.7041, 77.1025]
+start_coor["Bangalore"] = [12.972442, 77.580643]
 
 
 def citydata(city):
@@ -7,38 +11,64 @@ def citydata(city):
     trips_ = "static/gtfs/" + city + "/trips.csv"
     stops_ = "static/gtfs/" + city + "/stops.csv"
     stop_times_ = "static/gtfs/" + city + "/stop_times.csv"
-    ovl_num_ = "static/gtfs/" + city + "/statistics/Overlap_Number.npy"
-    ovl_per_ = "static/gtfs/" + city + "/statistics/Overlap_Percentage.npy"
     routes = pd.read_csv(routes_)
     trips = pd.read_csv(trips_)
     stops = pd.read_csv(stops_)
     stops.set_index('stop_id', inplace = True)
     stop_times = pd.read_csv(stop_times_)
-    ovl_num = np.load(ovl_num_)
-    ovl_per = np.load(ovl_per_)
-    return routes, trips, stops, stop_times, ovl_num, ovl_per
+    return routes, trips, stops, stop_times
 
 
 
-def max_ovl(route, thresh, routes, ovl_per):
-    max_routes = len(routes)
-    l = []
-#     print(len(l))
-    for i in range(max_routes):
-        if i == route: 
+def max_ovl(route, thresh, route_seq):
+    ovl_per = {}
+    ovl_num = {}
+    route_seq_ = copy.deepcopy(route_seq)
+    r1 = route_seq_[route]
+    r1.sort()
+    for i in route_seq_.keys():
+        if i == route:
+            ovl_per[i] = 0
+            ovl_num[i] = 0
             continue
-        if ovl_per[route][i] >= thresh:
-            l.append((ovl_per[route][i], i))
+        r2 = route_seq_[i]
+        if len(r2) == 0:
+            ovl_per[i] = 0.0
+            continue
+        r2.sort()
+        score = 0
+        i1 = 0
+        i2 = 0
+        while i1 < len(r1) and i2 < len(r2):
+            if r1[i1] == r2[i2]:
+                score += 1
+                i1 += 1
+                i2 += 1
+            elif r1[i1] < r2[i2]:
+                i1 += 1
+            else:
+                i2 += 1
+        if score <= 1:
+            score = 0
+        ovl_num[i] = score
+        score /= len(r1)
+        ovl_per[i] = score * 100.0
+    l = []
+    for i in route_seq_.keys():
+        if i == route:
+            continue
+        if ovl_per[i] >= thresh:
+            l.append((ovl_per[i], i))
     # print(l)
     l.sort(key = lambda y : y[0])
-    return l
+    return l, ovl_per, ovl_num
 
 
 def route_stops(routes, trips, stop_times):
     route_seq = {}
     max_routes = len(routes)
 
-    for i in range(max_routes):
+    for i in routes.index:
         route_seq[i] = []
 
     trp = trips.groupby('route_id')
@@ -58,12 +88,12 @@ def route_stops(routes, trips, stop_times):
     return route_seq
 
 
-def plot_route(r, m, color, flag, route_seq, prp_route, stops, ovl_num, ovl_per):
+def plot_route(r, m, color, flag, route_seq, stops, ovl_num, ovl_per):
     fg = folium.FeatureGroup(name = "Route" + str(r), show = False)
     # print(fg)
     ls = route_seq[r]
     coor = [0] * len(route_seq[r])
-    txt = "Overlap with Route " + str(r) + ", Number of stops overlapping : " + str(ovl_num[prp_route][r]) + "(" + str(ovl_per[prp_route][r]) + "%)"
+    txt = "Overlap with Route " + str(r) + ", Number of stops overlapping : " + str(ovl_num[r]) + "(" + str(ovl_per[r]) + "%)"
     for i in range(len(ls)):
         x = stops.loc[ls[i]]
         if i == 0:
@@ -83,18 +113,18 @@ def plot_route(r, m, color, flag, route_seq, prp_route, stops, ovl_num, ovl_per)
     if flag == 0:
         m.add_child(fg)
 
-def plot_ovl(ovl, route, stops, routes, trips, stop_times, ovl_per, ovl_num):
-    m = folium.Map(location = [28.7041, 77.1025], tiles = "cartodbpositron", zoom_start = 13)
-    route_seq = route_stops(routes, trips, stop_times)
+def plot_ovl(ovl, route, stops, routes, trips, stop_times, ovl_per, ovl_num, route_seq, city):
+    m = folium.Map(location = start_coor[city], tiles = "cartodbpositron", zoom_start = 13)
     n = len(ovl)
-    plot_route(route, m, 'blue', 1, route_seq, route, stops, ovl_num, ovl_per)
+    plot_route(route, m, 'blue', 1, route_seq, stops, ovl_num, ovl_per)
     color = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)])for i in range(n)]
     for i in range(n):
-        plot_route(ovl[n - i - 1][1], m, color[i], 0, route_seq, route, stops, ovl_num, ovl_per)
+        plot_route(ovl[n - i - 1][1], m, color[i], 0, route_seq, stops, ovl_num, ovl_per)
     folium.LayerControl().add_to(m)
     return m._repr_html_()
 
 def wrapper(thresh, route, city):
-    routes, trips, stops, stop_times, ovl_num, ovl_per = citydata(city)
-    req_list = max_ovl(route, thresh, routes, ovl_per)
-    return plot_ovl(req_list, route, stops, routes, trips, stop_times, ovl_per, ovl_num)
+    routes, trips, stops, stop_times= citydata(city)
+    route_seq = route_stops(routes, trips, stop_times)
+    req_list, ovl_per, ovl_num = max_ovl(route, thresh, route_seq)
+    return plot_ovl(req_list, route, stops, routes, trips, stop_times, ovl_per, ovl_num, route_seq, city)
